@@ -27,6 +27,11 @@ class Elementor_Integration {
 		}
 
 		$filter_id = $settings['jelaf_filter_id'];
+
+		if ( ! get_post( $filter_id ) ) {
+			return;
+		}
+
 		$filter_id = is_array( $filter_id ) ? $filter_id[0] : $filter_id;
 		$filter_type = ! empty( $settings['jelaf_filter_type'] ) ? $settings['jelaf_filter_type'] : 'select';
 		$provider = ! empty( $settings['jelaf_provider'] ) ? $settings['jelaf_provider'] : 'jet-engine';
@@ -41,31 +46,11 @@ class Elementor_Integration {
 			$apply_type = $settings['jelaf_apply_type'];
 		}
 
-		$source     = get_post_meta( $filter_id, '_data_source', true );
-		$query_type = false;
-		$query_var  = '';
-
-		if ( 'taxonomies' === $source ) {
-			
-			$tax        = get_post_meta( $filter_id, '_source_taxonomy', true );
-			$query_type = 'tax_query';
-			$query_var  = $tax;
-
-			$custom_query_var = false;
-
-			if ( filter_var( get_post_meta( $filter_id, '_is_custom_query_var', true ), FILTER_VALIDATE_BOOLEAN ) ) {
-				$custom_query_var = get_post_meta( $filter_id, '_custom_query_var', true );
-			}
-
-			if ( $custom_query_var ) {
-				$query_type = 'meta_query';
-				$query_var  = $custom_query_var;
-			}
-
-		} else {
-			$query_type = 'meta_query';
-			$query_var  = get_post_meta( $filter_id, '_query_var', true );
-		}
+		$filter_instance = jet_smart_filters()->filter_types->get_filter_instance( $filter_id );
+		$args = $filter_instance->get_args();
+		
+		$query_type = ! empty( $args['query_type'] ) ? $args['query_type'] : false;
+		$query_var  = ! empty( $args['query_var'] ) ? $args['query_var'] : '';
 
 		$widget->add_render_attribute( '_wrapper', 'data-filter-id', $filter_id );
 		$widget->add_render_attribute( '_wrapper', 'data-smart-filter', $filter_type );
@@ -185,6 +170,10 @@ class Elementor_Integration {
 						} );
 					}
 
+					isChecked( $item ) {
+						return $item.attr( 'is-checked' ) === '1';
+					}
+
 					addFilterChangeEvent() {
 												
 						this.$select.on( 'click', evt => {
@@ -194,8 +183,8 @@ class Elementor_Integration {
 							if ( ! this.isMultiple ) {
 								this.$select.filter('[is-checked="1"]').attr( 'is-checked', null );
 							}
-														
-							if ( this.dataValue != $radioItem.attr( 'value' ) ) {
+
+							if ( this.dataValue != $radioItem.attr( 'value' ) && ! ( this.isMultiple && this.isChecked( $radioItem ) ) ) {
 								$radioItem.attr( 'is-checked', 1 );
 							} else {
 								$radioItem.attr( 'is-checked', null );
@@ -213,10 +202,19 @@ class Elementor_Integration {
 
 					processData() {
 
-						this.dataValue = this.$selected.attr( 'value' );
+						if ( ! this.isMultiple ) {
+							this.dataValue = this.$selected.attr( 'value' );
+						} else {
+							this.dataValue = [];
+							
+							this.$selected.each( ( index, el ) => {
+								this.dataValue.push( $( el ).attr( 'value' ) );
+							} );
+						}
 						
-						if (!this.dataValue)
+						if ( ! this.dataValue || ! ( this.isMultiple && this.dataValue.length ) ) {
 							this.checkAllOption();
+						}
 
 						if (this.additionalFilterSettings)
 							this.additionalFilterSettings.dataUpdated();
@@ -245,13 +243,29 @@ class Elementor_Integration {
 					get activeValue() {
 						const $item = this.getItemByValue( this.data );
 
-						if ( $item ) {
+						if ( ! $item ) {
+							return '';
+						}
+
+						if ( ! this.isMultiple ) {
 							if ( $item.find( '.is-label' ).length ) {
 								return $item.find( '.is-label' ).text();
 							} else {
 								return $item.attr( 'value' );
 							}
 						}
+
+						let items = [];
+
+						$item.each( ( index, el ) => {
+							if ( $( el ).find( '.is-label' ).length ) {
+								items.push( $( el ).find( '.is-label' ).text() );
+							} else {
+								items.push( $( el ).attr( 'value' ) );
+							}
+						} );
+
+						return items.join( ', ' );
 					}
 
 					get $selected() {
@@ -259,12 +273,17 @@ class Elementor_Integration {
 					}
 
 					// Additional methods
-					getItemByValue(value) {
+					getItemByValue( value ) {
 
 						let $item = false;
 
-						$item = this.$select.filter('[value="' + value + '"]');
-
+						if ( ! this.isMultiple ) {
+							$item = this.$select.filter('[value="' + value + '"]');
+						} else {
+							value = value.map( v => ( v.toString instanceof Function ) ? v.toString() : v );
+							$item = this.$select.filter( ( i, el ) => value.includes( $( el ).attr( 'value' ) )  );
+						}
+						
 						return $item;
 					}
 

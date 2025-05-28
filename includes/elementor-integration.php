@@ -79,6 +79,8 @@ class Elementor_Integration {
 	}
 
 	public function print_assets() {
+		$disable_nested = apply_filters( 'jet-engine-listing-filter/js/disable-nested', true );
+
 		?>
 		<script>
 		( function( $ ) {
@@ -87,13 +89,14 @@ class Elementor_Integration {
 
 			const initListingFilter = function() {
 
+				const disableNested = '<?php echo $disable_nested; ?>';
 
 				window.JetSmartFilters.filtersList.JetEngineCustomListingFilter = 'jet-smart-filters-custom-listing';
 				window.JetSmartFilters.filters.JetEngineCustomListingFilter = class JetEngineCustomListingFilter extends window.JetSmartFilters.filters.Select {
 
 					constructor( $container ) {
 
-						const $filterListing = $container.find( '.jet-listing-grid' );
+						const $filterListing = $( $container.find( '.jet-listing-grid' )[0] );
 					
 						$filterListing.addClass( 'jet-select' );
 												
@@ -117,6 +120,11 @@ class Elementor_Integration {
 						super( $container );
 						
 						this.$select = $filterListing.find( '.jet-listing-grid__item' );
+
+						if ( disableNested ) {
+							this.$select = this.$select.filter( ( i, el ) => ! el.parentNode.closest('.jet-select .jet-listing-grid__item') );
+						}
+
 						this.isSelect = false;
 						this.canDeselect = true;
 
@@ -136,7 +144,7 @@ class Elementor_Integration {
 						window.JetSmartFilters.events.subscribe( 'ajaxFilters/updated', ( provider, queryId, response ) => {
 							if ( 'jet-engine' === provider && queryId === this.$container.attr( 'id' ) ) {
 								
-								const $filterListing = this.$container.find( '.jet-listing-grid' );
+								const $filterListing = $( this.$container.find( '.jet-listing-grid' )[0] );
 					
 								$filterListing.addClass( 'jet-select' );
 
@@ -160,6 +168,10 @@ class Elementor_Integration {
 								this.$filter = $filterListing;
 								
 								this.$select = this.$container.find( '.jet-listing-grid__item' );
+
+								if ( disableNested ) {
+									this.$select = this.$select.filter( ( i, el ) => ! el.parentNode.closest('.jet-select .jet-listing-grid__item') );
+								}
 								
 								this.$select.each( ( index, el ) => {
 									el.setAttribute( 'value', el.dataset.postId );
@@ -178,16 +190,23 @@ class Elementor_Integration {
 												
 						this.$select.on( 'click', evt => {
 
-							const $radioItem = jQuery( evt.target ).closest( '.jet-listing-grid__item' );
+							const $radioItem = jQuery( evt.target ).closest( '.jet-listing-grid__item[value]' );
 							
-							if ( ! this.isMultiple ) {
-								this.$select.filter('[is-checked="1"]').attr( 'is-checked', null );
+							if ( ! disableNested && $radioItem[0] !== evt.currentTarget ) {
+								return;
 							}
 
-							if ( this.dataValue != $radioItem.attr( 'value' ) && ! ( this.isMultiple && this.isChecked( $radioItem ) ) ) {
+							const value = $radioItem.attr( 'value' );
+
+							if ( ! this.isMultiple ) {
+								this.$select.filter( '[is-checked="1"]' ).attr( 'is-checked', null );
 								$radioItem.attr( 'is-checked', 1 );
 							} else {
-								$radioItem.attr( 'is-checked', null );
+								if ( ! this.dataValue.includes( value ) && ! this.isChecked( $radioItem ) ) {
+									$radioItem.attr( 'is-checked', 1 );
+								} else {
+									this.$select.filter( '[value="' + value + '"]' ).attr( 'is-checked', null );
+								}
 							}
 
 							this.processData();
@@ -198,6 +217,17 @@ class Elementor_Integration {
 
 					removeChangeEvent() {
 						this.$select.off();
+					}
+
+					getValueLabel( value ) {
+						let $items = this.getItemByValue( this.data );
+						let $found = $items.filter('[value="' + value + '"]');
+						
+						if ( $found.find( '.is-label' ).length ) {
+							return $found.find( '.is-label' ).text();
+						} else {
+							return $found.attr( 'value' );
+						}
 					}
 
 					processData() {
@@ -235,8 +265,18 @@ class Elementor_Integration {
 						this.processData();
 					}
 
-					reset() {
-						this.$select.attr( 'is-checked', null );
+					reset( value = false ) {
+						if ( this.isMultiple ) {
+							if ( value ) {
+								let $item = this.getItemByValue( value );
+								$item.attr( 'is-checked', null );
+							} else {
+								this.$select.attr( 'is-checked', null );
+							}
+						} else {
+							this.$select.attr( 'is-checked', null );
+						}
+
 						this.processData();
 					}
 
@@ -256,13 +296,21 @@ class Elementor_Integration {
 						}
 
 						let items = [];
+						let values = [];
 
 						$item.each( ( index, el ) => {
+							const value = $( el ).attr( 'value' );
+							let label = value;
+							
 							if ( $( el ).find( '.is-label' ).length ) {
-								items.push( $( el ).find( '.is-label' ).text() );
-							} else {
-								items.push( $( el ).attr( 'value' ) );
+								label = $( el ).find( '.is-label' ).text();
 							}
+
+							if ( ! values.includes( value ) ) {
+								items.push( label );
+							}
+
+							values.push( value );
 						} );
 
 						return items.join( ', ' );
@@ -275,11 +323,18 @@ class Elementor_Integration {
 					// Additional methods
 					getItemByValue( value ) {
 
+						if ( ! value ) {
+							return false;
+						}
+
 						let $item = false;
 
 						if ( ! this.isMultiple ) {
 							$item = this.$select.filter('[value="' + value + '"]');
 						} else {
+							if ( ! Array.isArray( value ) ) {
+								value = [ value ];
+							}
 							value = value.map( v => ( v.toString instanceof Function ) ? v.toString() : v );
 							$item = this.$select.filter( ( i, el ) => value.includes( $( el ).attr( 'value' ) )  );
 						}

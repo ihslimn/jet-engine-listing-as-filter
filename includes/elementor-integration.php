@@ -153,7 +153,7 @@ class Elementor_Integration {
 							( e, args, response ) => {
 								const $loadedContainer = args.container;
 
-								if ( ! $loadedContainer[0] || $loadedContainer[0] !== $container[0] ) {
+								if ( ! $loadedContainer[0] || ( $loadedContainer[0] !== $container[0] && $loadedContainer[0]?.parentNode !== $container[0] ) ) {
 									return;
 								}
 
